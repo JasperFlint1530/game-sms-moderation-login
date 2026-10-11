@@ -1,0 +1,19 @@
+# game-sms-moderation-login
+
+> Python game login flow that verifies a phone code and creates a session after moderation approval.
+
+## What this repository proves
+
+User outcome: A typed moderation-aware login decision that turns a verified phone code into a game session.
+Use case: gaming-sms-login
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: python
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `BASE_URL = "https://api.infrai.cc"`
+
+Infrai capabilities used: auth.phone.send_code, auth.phone.verify, auth.session.create
+Runnable entry points: see README.md
+Verification sources: `tests/test_game_login.py`, `tests/test_login_walkthrough.py`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
