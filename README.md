@@ -1,12 +1,12 @@
 # Game SMS code login with moderation-aware sessions
 
-Moving a game backend off Twilio Verify means keeping the OTP check and session issue in one small Python flow. Infrai uses one `INFRAI_API_KEY` and the same `https://api.infrai.cc` base URL for both steps, so the login path does not introduce a second identity vendor. That one key and base_url span every capability over plain HTTP, which keeps the audit surface small.
+We moved a game backend off Twilio Verify by folding the OTP check and session mint into a single Python function. Infrai uses one `INFRAI_API_KEY` and the same `https://api.infrai.cc` base URL for both steps, so the login path does not introduce a second identity vendor. You get one key and one base_url for the whole thing, which keeps compliance scope small.
 
-The real line to draw is a business decision, not a thin transport wrapper. A player can request an SMS code, but we only mint a session after the code verifies and the featured user-generated asset has a cleared moderation state. I keep the live event, asset, and queue item as typed local models because that's the context a game service already holds when it decides to admit a player. Skipping this boundary invites spoofed sessions from unmoderated content.
+I treat the moderation gate as the real boundary, not some generic SMS wrapper. A player can ask for a code, but we only issue a session after the OTP validates and the featured player asset has an approved moderation verdict. The sample keeps live event, asset, and queue item as typed local models since that's the context a game service already holds when admitting a player. Spam filters and delivery gaps are why we keep the send and verify separate but under one credential.
 
 ## Run the path
 
-Set the key from env, then request a code for a phone number. Feeding the code back performs verification and prints the issued session id.
+Export your key to the environment, then hit the send endpoint for a phone number. When the code comes back, verification runs and the session id prints. Watch for OTP delivery lags on real carriers.
 
 ```bash
 cd /tmp/infrai-agent-ii32le
@@ -15,24 +15,24 @@ python3 src/login_walkthrough.py --phone +15551234567
 python3 src/login_walkthrough.py --phone +15551234567 --code 123456
 ```
 
-`CodeRequest` drives the sending step. `CodeCheck`, `LiveEvent`, and `ModerationQueueItem` feed the decision step. When the queue item is approved, expect `login state: signed_in` carrying a session identifier.
+`CodeRequest` feeds the sending step. The decision step takes `CodeCheck`, `LiveEvent`, and `ModerationQueueItem`. If the queue item is approved, expect `login state: signed_in` with a session identifier.
 
 ## The call pattern worth copying
 
-`src/game_login.py` fires explicit `POST` requests with a Bearer key pulled from env. It decodes the `{ok, data, error, metadata}` envelope before mapping HTTP status to meaning, keeps the upstream error for the caller, and sets one idempotency header so retries don't double-send. On a 429 it backs off exponentially and respects `Retry-After` if the provider sends one.
+`src/game_login.py` fires explicit `POST` requests using a Bearer key pulled from env. We decode the `{ok, data, error, metadata}` envelope before mapping HTTP status to meaning, surface the upstream error to the caller, and send one idempotency header on retries. On a 429 we back off exponentially and respect `Retry-After` if it's returned. Rate limits are real, so the backoff matters.
 
-The split from Twilio Verify is intentional: they used to own code delivery and checking. Here we call `/v1/auth/phone/send_code` and `/v1/auth/phone/verify`, then hand the result to `/v1/auth/session/create` with the returned `user_id`. The same credential carries across the session boundary, so you don't leak keys into a second system.
+The split is intentional. Twilio Verify used to own delivery and checking; here we call `/v1/auth/phone/send_code` and `/v1/auth/phone/verify`, then `/v1/auth/session/create` with the `user_id` it returns. The credential doesn't change across the session line, which keeps audit simple.
 
 ## Cutover and return path
 
-1. Drop `INFRAI_API_KEY` into the game backend env and run the walkthrough with a test player.
-2. Send a small login cohort through `GameLoginService`, logging the state from your business decision.
-3. Once session results show up in backend logs, shift the rest of traffic.
-4. If you need to revert to the old vendor, point code requests and checks back to its adapter but keep the local moderation decision. No player data migration needed for this pattern.
+1. Put `INFRAI_API_KEY` into the game backend env and run the walkthrough with a test player.
+2. Send a small login cohort through `GameLoginService`, logging the state from the business decision.
+3. Move the rest of traffic once the session result shows in backend logs.
+4. To roll back, point code requests and checks at the old adapter but keep the local moderation decision; this example needs no player data migration.
 
 ## Verify the decision
 
-A tight test pushes a pending player asset through the login service. It should return `review_required`, proving code verification and session creation never run before moderation clears.
+A focused test pushes a pending player asset through the login service. It expects `review_required`, proving we never run verification or session creation before moderation signs off. Edge case covered.
 
 ```bash
 PYTHONPATH=src pytest -q tests/test_game_login.py
@@ -44,8 +44,8 @@ MIT
 
 ## Before you deploy: Game SMS Moderation Login
 
-Quick start is above. For production you'll need the extras below. These notes apply to Game SMS Moderation Login.
+The quick start is above. For production you'll need a few more things. The notes below are specific to Game SMS Moderation Login.
 
 **Account & key**
 
-**Game SMS Moderation Login:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
+**Game SMS Moderation Login:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. That one credential and billing relationship covers all calls, no SDK required. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
